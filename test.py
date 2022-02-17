@@ -78,8 +78,18 @@ def buildSimilarity(user_id=201):
         """)
     print("build complete.")
 
+def compare(elem):
+    return elem[0][0]
+
+
+def testListSort():
+    list_a = [["a", 1], ["c", -1], ["b", 3]]
+    print(list_a)
+    print(sorted(list_a, key=(lambda x: x[1])))
+
 
 if __name__ == '__main__':
-    deleteSimilarity()
-    buildSimilarity(440)
-    recommend(440)
+    # deleteSimilarity()
+    # buildSimilarity(440)
+    # recommend(440)
+    testListSort()

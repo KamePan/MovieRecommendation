@@ -118,6 +118,14 @@ def queries():
                 Q_GENRE += ")"
 
             q = session.run(f"""
+                MATCH (u1:User{{id:{user_id}}})-[r1:RATED]-(m1:Movie) 
+                with u1, r1, m1
+                MATCH (m1)-[s:SIMILARITY]-(m2:Movie)
+                WITH                     
+                    SUM(r1.grading * s.sim) / SUM(s.sim) AS grade, 
+            """)
+
+            q = session.run(f"""
                 MATCH (u1:User{{id:{user_id}}})-[s:SIMILARITY]-(u2:User) 
                 WITH u1, u2, s 
                 ORDER BY s.sim DESC LIMIT {k} 
