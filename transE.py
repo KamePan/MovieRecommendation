@@ -6,6 +6,7 @@ import copy
 import math
 import random
 import time
+import database as db
 
 
 import numpy as np
@@ -33,7 +34,7 @@ current_user_grade_dict = dict()
 # 6. 由于推荐系统为特定 ID 用户推荐商品，则可以与基于物品的协同过滤相同，构造（物品，物品相似度矩阵），进而根据用户对物品的评分和相似度进行加权评分
 
 
-def data_loader(user_id=440):
+def data_loader(user_id):
     uri = "neo4j://localhost:7687"
     graph = Graph(uri, auth=("neo4j", "pan151312"))
 
@@ -48,7 +49,7 @@ def data_loader(user_id=440):
         movie = grade_record["m"]
         grade = grade_record["r"]
         current_user_grade_dict[str(movie.identity)] = grade["grading"]
-    print(current_user_grade_dict)
+    # print(current_user_grade_dict)
 
     all_relations = graph.run(f"""
         MATCH relation=()-->() RETURN relation LIMIT 10000
@@ -70,8 +71,7 @@ def data_loader(user_id=440):
             movie_set.add(str(end_entity.identity))
             movie_dict[str(end_entity.identity)] = end_entity["title"]
     df = pd.DataFrame(triple_list)
-    print(df)
-    print(movie_dict)
+    # print(df)
 
     return entity_set, relation_set, triple_list
 
@@ -137,11 +137,11 @@ class TransE:
             self.update_embeddings(Tbatch)
 
             end = time.time()
-            print("epoch: ", epoch, "cost time: %s" % (round((end - start), 3)))
-            print("loss: ", self.loss)
-            loss_ls.append(self.loss)
+            # print("epoch: ", epoch, "cost time: %s" % (round((end - start), 3)))
+            # print("loss: ", self.loss)
+            # loss_ls.append(self.loss)
 
-            # # 保存临时结果
+            # 保存临时结果
             # if epoch % 20 == 0:
             #     with codecs.open("entity_temp", "w") as f_e:
             #         for e in self.entity.keys():
@@ -154,23 +154,23 @@ class TransE:
             #             f_r.write(str(list(self.relation[r])))
             #             f_r.write("\n")
 
-        print("写入文件...")
-        with codecs.open("./result/entity_20dim1", "w") as f1:
-            for e in self.entity.keys():
-                f1.write(e + "\t")
-                f1.write(str(list(self.entity[e])))
-                f1.write("\n")
-
-        with codecs.open("./result/relation_20dim1", "w") as f2:
-            for r in self.relation.keys():
-                f2.write(r + "\t")
-                f2.write(str(list(self.relation[r])))
-                f2.write("\n")
-
-        with codecs.open("./result/loss", "w") as f3:
-            f3.write(str(loss_ls))
-
-        print("写入完成")
+        # print("写入文件...")
+        # with codecs.open("./result/entity_20dim1", "w") as f1:
+        #     for e in self.entity.keys():
+        #         f1.write(e + "\t")
+        #         f1.write(str(list(self.entity[e])))
+        #         f1.write("\n")
+        #
+        # with codecs.open("./result/relation_20dim1", "w") as f2:
+        #     for r in self.relation.keys():
+        #         f2.write(r + "\t")
+        #         f2.write(str(list(self.relation[r])))
+        #         f2.write("\n")
+        #
+        # with codecs.open("./result/loss", "w") as f3:
+        #     f3.write(str(loss_ls))
+        #
+        # print("写入完成")
 
     def Corrupt(self, triple):
         corrupted_triple = copy.deepcopy(triple)
@@ -272,11 +272,11 @@ class TransE:
         return max(0, dist_correct - dist_corrupt + self.margin)
 
 
-if __name__ == '__main__':
-    entity_set, relation_set, triple_list = data_loader()
+def query_recommendation_top_k_by_user_id(user_id, recommend_num=10):
+    entity_set, relation_set, triple_list = data_loader(user_id)
     print("load file...")
     print("Complete load. entity : %d , relation : %d , triple : %d" % (
-         len(entity_set), len(relation_set), len(triple_list)))
+        len(entity_set), len(relation_set), len(triple_list)))
 
     transE = TransE(entity_set, relation_set, triple_list, embedding_dim=20, learning_rate=0.01, margin=1, L1=True)
     transE.emb_initialize()
@@ -293,18 +293,29 @@ if __name__ == '__main__':
             continue
         movie1_vec = transE.entity[movie1]
         movie1_predict = 0
+        similarity_sum = 0
         for movie2 in current_user_grade_dict.keys():  # 遍历用户看过的电影
             movie2_vec = transE.entity[movie2]
             # similarity = np.sum(movie1_vec * movie2_vec) / (np.sqrt(np.sum(movie1_vec ** 2)) * np.sqrt(np.sum(movie2_vec ** 2)))
             # 采用欧式距离并将其规约到 (0,1] 之间
             similarity = 1 / (1 + np.sqrt(np.sum((movie1_vec - movie2_vec) ** 2)))
-            # 未评分电影 movie1 和评分电影 movie2 相似度与 movie1 评分，并归一化（按照我理解的归一化）
+            # 未评分电影 movie1 和评分电影 movie2 相似度与 movie1 评分
             movie1_predict += similarity * current_user_grade_dict[movie2]
+            similarity_sum += similarity
+        # 除去相似度之和进行归一化
+        movie1_predict = movie1_predict / similarity_sum
         grade_predict_dict[movie1] = movie1_predict
-        predict_list.append([movie_dict[movie1], movie1_predict])
-    predict_list = sorted(predict_list, key=(lambda movie: movie[1]), reverse=True)
-    predict_df = pd.DataFrame(predict_list, columns=["title", "grade"])
-    print(predict_df)
-
-    # 对 User 来说
-    # MATCH(m: Movie)-[r: RATED]-(u2) 可以查询出用户对电影的评分
+        recommender_num, genres = db.query_movie_recommmender_num_and_genres_by_title(movie_dict[movie1])
+        predict_list.append([movie_dict[movie1], movie1_predict, recommender_num, genres])
+    predict_list = sorted(predict_list, key=(lambda movie: movie[1]), reverse=True)[:recommend_num]
+    # predict_df = pd.DataFrame(predict_list, columns=["title", "grade", "recommender_num", "genres"])
+    # print(predict_df)
+    return predict_list
+    # 能否提取出相似度矩阵呢
+    # 这里要提取出相似度矩阵其实是可以的，但是比较麻烦，能不能不构造相似度矩阵，直接在计算出相似度的时候进行合并呢
+    # 但是这样就需要同时计算出语义相似度和协同过滤相似度
+    # 计算语义相似度的时候能通过先前已经计算得到的向量，计算出用户未看过电影A与看过电影B的相似度
+    # 在这里能否计算出电影A和电影B协同过滤的相似度呢
+    # 当然可以啊，因为 cf 的实现就是先计算相似度存到 Neo4j 里面，那么只要取出以 A 和 B 为首尾的 similarity 关系就可以了
+    # 不对，因为 cf 实现是基于用户的协同过滤，只会计算用户的相似度，怎么可能把用户的相似度矩阵和物品的相似度矩阵加权融合
+    # 现在的策略就是 1.用基于物品的协同过滤，将电影间的相似度矩阵加权相加 2.将两个算出的 TopK 进行融合
