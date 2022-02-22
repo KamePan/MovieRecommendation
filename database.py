@@ -1,3 +1,5 @@
+import time
+
 from neo4j import GraphDatabase
 from py2neo import Graph
 import pandas as pd
@@ -53,16 +55,22 @@ def load_data():
 
 
 def query_all_genres():
+    start = time.time()
     result = session.run(f"""MATCH (g:Genre) RETURN g.genre AS genre""")
+    end = time.time()
+    print("query_all_genres: " + str(end - start) + "s")
     return result
 
 
 def query_rated_movie_by_user_id(user_id):
+    start = time.time()
     result = session.run(f"""
             MATCH (u1:User{{id:{user_id}}})-[r:RATED]-(m:Movie)
             RETURN m.title AS title, r.grading as grade
             ORDER BY grade DESC
         """)
+    end = time.time()
+    print("query_rated_movie_by_user_id: " + str(end - start) + "s")
     return result
 
 
@@ -74,6 +82,7 @@ def delete_similarity():
 
 
 def build_similarity(user_id, movies_common, threshold_sim):
+    start = time.time()
     # 用户余弦相似度计算
     session.run(f"""
             MATCH (u1:User{{id:{user_id}}})-[r1:RATED]-(m:Movie)-[r2:RATED]-(u2:User)
@@ -85,9 +94,12 @@ def build_similarity(user_id, movies_common, threshold_sim):
             MERGE (u1)-[s:SIMILARITY]-(u2)
             SET s.sim = sim
         """)
+    end = time.time()
+    print("build_similarity: " + str(end - start) + "s")
 
 
 def calculate_collaborative_filter_recommendation_rank(user_id, k, users_common, m):
+    start = time.time()
     result = session.run(f"""
             MATCH (u1:User{{id:{user_id}}})-[s:SIMILARITY]-(u2:User) 
             WITH u1, u2, s 
@@ -104,10 +116,13 @@ def calculate_collaborative_filter_recommendation_rank(user_id, k, users_common,
             ORDER BY grade DESC, num DESC 
             LIMIT {m}
         """)
+    end = time.time()
+    print("calculate_collaborative_filter_recommendation_rank: " + str(end - start) + "s")
     return result
 
 
 def query_movie_recommmender_num_and_genres_by_title(title):
+    start = time.time()
     query_result = graph.run(f"""
             MATCH (u:User)-[:RATED]-(m:Movie{{title:\"{title}\"}})
             OPTIONAL MATCH (m)--(g:Genre)
@@ -116,6 +131,8 @@ def query_movie_recommmender_num_and_genres_by_title(title):
         """).data()[0]
     recommender_num = query_result["recommender_num"]
     genres = query_result["genres"]
+    end = time.time()
+    print("query_movie_recommmender_num_and_genres_by_title: " + str(end - start) + "s")
     return recommender_num, genres
 
 

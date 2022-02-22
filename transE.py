@@ -15,10 +15,6 @@ entity2id = {}
 relation2id = {}
 loss_ls = []
 
-movie_set = set()
-movie_dict = dict()
-current_user_grade_dict = dict()
-
 # data_loader 从 FB15K 数据集文本中提取 entity 和 relation 以及三元组数据。这里三元组数据中关系有很多，而我们的电影数据集仅有几个关系，
 # 那么我们电影数据集对应到这里的三元组是 (User, Movie, RATED) 对应 (h, t, r)，一个问题是例如 Genre 的关系和实体需要放进来吗？
 # TransE 计算时仅考虑三元组和实体，那么如果我们能够将实体和其向量很好对应起来，那么将所有的实体和关系（不管是电影、用户还是类型）都使用
@@ -37,43 +33,88 @@ current_user_grade_dict = dict()
 def data_loader(user_id):
     uri = "neo4j://localhost:7687"
     graph = Graph(uri, auth=("neo4j", "pan151312"))
+    driver = GraphDatabase.driver(uri, auth=("neo4j", "pan151312"))
+    session = driver.session()
 
     entity_set = set()
     relation_set = set()
     triple_list = []
-
+    movie_set = set()
+    movie_dict = dict()
+    current_user_grade_dict = dict()
+    start = time.time()
     grades = graph.run(f"""
-        MATCH (User{{id:{user_id}}})-[r:RATED]-(m:Movie) RETURN m, r LIMIT 500
-    """)
+            MATCH (User{{id:{user_id}}})-[r:RATED]-(m:Movie) RETURN m, r
+        """)
     for grade_record in grades:
         movie = grade_record["m"]
         grade = grade_record["r"]
         current_user_grade_dict[str(movie.identity)] = grade["grading"]
-    # print(current_user_grade_dict)
+    end = time.time()
+    print("Build User Movie Grade Dict: " + str(end - start) + "s")
 
-    all_relations = graph.run(f"""
-        MATCH relation=()-->() RETURN relation LIMIT 10000
-    """)
+    start = time.time()
+    all_relations = session.run(f"""
+            MATCH ()-[relation]->() RETURN relation
+        """)
+    end = time.time()
+    print("Query All Relation: " + str(end - start) + "s")
+
+    # 若在处理关系的时候处理实体集，由于关系中的实体是重复的，因此会被重复添加到实体集中
+    # 这个循环的复杂度也就变为了 relation 数量级的处理，加上两倍 relation 数量的头尾节点 Node 的处理
+    # 之前的时间过长也是因为这里（后来根据发现时间统计发现其实这里处理耗费时间不长）
+    start = time.time()
+    total = 0.0000
+    e = time.time()
+    total_interval= 0
     for relation_record in all_relations:
+        s = time.time()
+        total_interval += s - e
         relation = relation_record["relation"]
         start_entity = relation.start_node
         end_entity = relation.end_node
-        relation_type = list(relation.types())[0]
-        entity_set.add(str(start_entity.identity))
-        entity_set.add(str(end_entity.identity))
+        relation_type = relation.type
+        entity_set.add(start_entity["title"])
+        entity_set.add(end_entity["title"])
         relation_set.add(relation_type)
-        triple_list.append([str(start_entity.identity), str(end_entity.identity), relation_type])
+        triple_list.append([str(start_entity.id), str(end_entity.id), relation_type])
+        e = time.time()
+        total += e - s
+    print("Circle Interval: " + str(total_interval) + "s")
+    print("type list 总时间: " + str(total) + "s")
+        # if start_entity.has_label('Movie'):
+        #     movie_set.add(start_entity["title"])
+            # movie_dict[str(start_entity["title])] = start_entity["title"]
+        # if end_entity.has_label('Movie'):
+        #     movie_set.add(end_entity["title"])
+            # movie_dict[str(end_entity.identity)] = end_entity["title"]
+    end = time.time()
+    print("Process Relation: " + str(end - start) + "s")
 
-        if start_entity.has_label('Movie'):
-            movie_set.add(str(start_entity.identity))
-            movie_dict[str(start_entity.identity)] = start_entity["title"]
-        if end_entity.has_label('Movie'):
-            movie_set.add(str(end_entity.identity))
-            movie_dict[str(end_entity.identity)] = end_entity["title"]
-    df = pd.DataFrame(triple_list)
-    # print(df)
+    start = time.time()
+    all_entities = graph.run(f"""
+                MATCH (n) RETURN n
+            """)
+    for entity_record in all_entities:
+        entity = entity_record["n"]
+        entity_set.add(str(entity.identity))
+    end = time.time()
+    print("Process All Entity: " + str(end - start) + "s")
 
-    return entity_set, relation_set, triple_list
+    start = time.time()
+    all_movies = graph.run(f"""
+            MATCH (m:Movie) RETURN m
+        """)
+    for movie_record in all_movies:
+        movie = movie_record["m"]
+        movie_set.add(str(movie.identity))
+        movie_dict[str(movie.identity)] = movie["title"]
+    end = time.time()
+    print("movie_set 中电影数量: " + str(len(movie_set)))
+    print("电影数量: " + str(len(all_movies.data())))
+    print("Build Movie Set And Movie Dict: " + str(end - start) + "s")
+
+    return entity_set, relation_set, triple_list, movie_set, movie_dict, current_user_grade_dict
 
 
 def distanceL2(h, r, t):
@@ -273,7 +314,8 @@ class TransE:
 
 
 def query_recommendation_top_k_by_user_id(user_id, recommend_num=10):
-    entity_set, relation_set, triple_list = data_loader(user_id)
+    start = time.time()
+    entity_set, relation_set, triple_list, movie_set, movie_dict, current_user_grade_dict = data_loader(user_id)
     print("load file...")
     print("Complete load. entity : %d , relation : %d , triple : %d" % (
         len(entity_set), len(relation_set), len(triple_list)))
@@ -305,11 +347,21 @@ def query_recommendation_top_k_by_user_id(user_id, recommend_num=10):
         # 除去相似度之和进行归一化
         movie1_predict = movie1_predict / similarity_sum
         grade_predict_dict[movie1] = movie1_predict
-        recommender_num, genres = db.query_movie_recommmender_num_and_genres_by_title(movie_dict[movie1])
-        predict_list.append([movie_dict[movie1], movie1_predict, recommender_num, genres])
+        # 如果在这里查询电影的类型和推荐人数，则需要电影数量次数的查询
+        # recommender_num, genres = db.query_movie_recommmender_num_and_genres_by_title(movie_dict[movie1])
+        # predict_list.append([movie_dict[movie1], movie1_predict, recommender_num, genres])
+        predict_list.append([movie_dict[movie1], movie1_predict])
     predict_list = sorted(predict_list, key=(lambda movie: movie[1]), reverse=True)[:recommend_num]
+    # 放在这里做查询就能够只做 recommend_num 次数的查询
+    for predict_movie in predict_list:
+        predict_movie_title = predict_movie[0]
+        recommender_num, genres = db.query_movie_recommmender_num_and_genres_by_title(predict_movie_title)
+        predict_movie.append(recommender_num)
+        predict_movie.append(genres)
     # predict_df = pd.DataFrame(predict_list, columns=["title", "grade", "recommender_num", "genres"])
     # print(predict_df)
+    end = time.time()
+    print("query_recommendation_top_k_by_user_id: " + str(end - start) + "s")
     return predict_list
     # 能否提取出相似度矩阵呢
     # 这里要提取出相似度矩阵其实是可以的，但是比较麻烦，能不能不构造相似度矩阵，直接在计算出相似度的时候进行合并呢
@@ -319,3 +371,7 @@ def query_recommendation_top_k_by_user_id(user_id, recommend_num=10):
     # 当然可以啊，因为 cf 的实现就是先计算相似度存到 Neo4j 里面，那么只要取出以 A 和 B 为首尾的 similarity 关系就可以了
     # 不对，因为 cf 实现是基于用户的协同过滤，只会计算用户的相似度，怎么可能把用户的相似度矩阵和物品的相似度矩阵加权融合
     # 现在的策略就是 1.用基于物品的协同过滤，将电影间的相似度矩阵加权相加 2.将两个算出的 TopK 进行融合
+
+
+if __name__ == '__main__':
+    data_loader(440)
