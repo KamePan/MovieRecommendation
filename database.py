@@ -122,7 +122,7 @@ def calculate_collaborative_filter_recommendation_rank(user_id, k, users_common,
 
 
 def query_movie_recommmender_num_and_genres_by_title(title):
-    start = time.time()
+    # start = time.time()
     query_result = graph.run(f"""
             MATCH (u:User)-[:RATED]-(m:Movie{{title:\"{title}\"}})
             OPTIONAL MATCH (m)--(g:Genre)
@@ -131,8 +131,8 @@ def query_movie_recommmender_num_and_genres_by_title(title):
         """).data()[0]
     recommender_num = query_result["recommender_num"]
     genres = query_result["genres"]
-    end = time.time()
-    print("query_movie_recommmender_num_and_genres_by_title: " + str(end - start) + "s")
+    # end = time.time()
+    # print("query_movie_recommmender_num_and_genres_by_title: " + str(end - start) + "s")
     return recommender_num, genres
 
 

@@ -25,6 +25,7 @@ def query_recommendation_top_k_by_user_id(user_id, recommend_num=10):
     db.build_similarity(user_id, movies_common, threshold_sim)
 
     q = db.calculate_collaborative_filter_recommendation_rank(user_id, k, users_common, recommend_num)
+    db.delete_similarity()
     print("Recommended Movies:\n")
     result = []
     for r in q:

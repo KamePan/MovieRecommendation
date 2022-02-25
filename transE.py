@@ -31,6 +31,7 @@ loss_ls = []
 
 
 def data_loader(user_id):
+    start_data_loader = time.time()
     uri = "neo4j://localhost:7687"
     graph = Graph(uri, auth=("neo4j", "pan151312"))
     driver = GraphDatabase.driver(uri, auth=("neo4j", "pan151312"))
@@ -66,7 +67,7 @@ def data_loader(user_id):
     start = time.time()
     total = 0.0000
     e = time.time()
-    total_interval= 0
+    total_interval = 0
     for relation_record in all_relations:
         s = time.time()
         total_interval += s - e
@@ -81,13 +82,7 @@ def data_loader(user_id):
         e = time.time()
         total += e - s
     print("Circle Interval: " + str(total_interval) + "s")
-    print("type list 总时间: " + str(total) + "s")
-        # if start_entity.has_label('Movie'):
-        #     movie_set.add(start_entity["title"])
-            # movie_dict[str(start_entity["title])] = start_entity["title"]
-        # if end_entity.has_label('Movie'):
-        #     movie_set.add(end_entity["title"])
-            # movie_dict[str(end_entity.identity)] = end_entity["title"]
+    print("循环中代码耗时: " + str(total) + "s")
     end = time.time()
     print("Process Relation: " + str(end - start) + "s")
 
@@ -111,9 +106,10 @@ def data_loader(user_id):
         movie_dict[str(movie.identity)] = movie["title"]
     end = time.time()
     print("movie_set 中电影数量: " + str(len(movie_set)))
-    print("电影数量: " + str(len(all_movies.data())))
-    print("Build Movie Set And Movie Dict: " + str(end - start) + "s")
+    print("Process All Movies: " + str(end - start) + "s")
 
+    end_data_loader = time.time()
+    print("data_loader: " + str(end_data_loader - start_data_loader) + "s")
     return entity_set, relation_set, triple_list, movie_set, movie_dict, current_user_grade_dict
 
 
@@ -172,15 +168,15 @@ class TransE:
             Tbatch = []
 
             for triple in Sbatch:
-                corrupted_triple = self.Corrupt(triple)
+                corrupted_triple = self.corrupt(triple)
                 if (triple, corrupted_triple) not in Tbatch:
                     Tbatch.append((triple, corrupted_triple))
             self.update_embeddings(Tbatch)
 
             end = time.time()
-            # print("epoch: ", epoch, "cost time: %s" % (round((end - start), 3)))
-            # print("loss: ", self.loss)
-            # loss_ls.append(self.loss)
+            print("epoch: ", epoch, "cost time: %s" % (round((end - start), 3)))
+            print("loss: ", self.loss)
+            loss_ls.append(self.loss)
 
             # 保存临时结果
             # if epoch % 20 == 0:
@@ -213,7 +209,7 @@ class TransE:
         #
         # print("写入完成")
 
-    def Corrupt(self, triple):
+    def corrupt(self, triple):
         corrupted_triple = copy.deepcopy(triple)
         seed = random.random()
         if seed > 0.5:
@@ -320,11 +316,14 @@ def query_recommendation_top_k_by_user_id(user_id, recommend_num=10):
     print("Complete load. entity : %d , relation : %d , triple : %d" % (
         len(entity_set), len(relation_set), len(triple_list)))
 
+    start_translate_train = time.time()
     transE = TransE(entity_set, relation_set, triple_list, embedding_dim=20, learning_rate=0.01, margin=1, L1=True)
     transE.emb_initialize()
     transE.train(epochs=50)
+    end_translate_train = time.time()
+    print("TransE train time: " + str(end_translate_train - start_translate_train) + "s")
 
-    grade_predict_dict = dict()
+    start_predict = time.time()
     predict_list = []
     for movie1 in movie_set:  # 遍历所有电影
         # 不需要求出每个电影间的相似度，只需要求出当前用户看过的电影与其他电影的相似度就可以
@@ -346,10 +345,6 @@ def query_recommendation_top_k_by_user_id(user_id, recommend_num=10):
             similarity_sum += similarity
         # 除去相似度之和进行归一化
         movie1_predict = movie1_predict / similarity_sum
-        grade_predict_dict[movie1] = movie1_predict
-        # 如果在这里查询电影的类型和推荐人数，则需要电影数量次数的查询
-        # recommender_num, genres = db.query_movie_recommmender_num_and_genres_by_title(movie_dict[movie1])
-        # predict_list.append([movie_dict[movie1], movie1_predict, recommender_num, genres])
         predict_list.append([movie_dict[movie1], movie1_predict])
     predict_list = sorted(predict_list, key=(lambda movie: movie[1]), reverse=True)[:recommend_num]
     # 放在这里做查询就能够只做 recommend_num 次数的查询
@@ -358,8 +353,8 @@ def query_recommendation_top_k_by_user_id(user_id, recommend_num=10):
         recommender_num, genres = db.query_movie_recommmender_num_and_genres_by_title(predict_movie_title)
         predict_movie.append(recommender_num)
         predict_movie.append(genres)
-    # predict_df = pd.DataFrame(predict_list, columns=["title", "grade", "recommender_num", "genres"])
-    # print(predict_df)
+    end_predict = time.time()
+    print("build transE predict list: " + str(end_predict - start_predict) + "s")
     end = time.time()
     print("query_recommendation_top_k_by_user_id: " + str(end - start) + "s")
     return predict_list
