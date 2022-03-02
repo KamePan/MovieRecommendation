@@ -74,14 +74,14 @@ def query_rated_movie_by_user_id(user_id):
     return result
 
 
-def delete_similarity():
+def delete_user_similarity():
     session.run(f"""
             MATCH (u1: User)-[s:SIMILARITY]-(u2:User)
             DELETE s
         """)
 
 
-def build_similarity(user_id, movies_common, threshold_sim):
+def build_user_similarity(user_id, movies_common, threshold_sim):
     start = time.time()
     # 用户余弦相似度计算
     session.run(f"""
@@ -98,6 +98,56 @@ def build_similarity(user_id, movies_common, threshold_sim):
     print("build_similarity: " + str(end - start) + "s")
 
 
+# 这里对某个 user 进行推荐似乎没法计算物品相似度，如果要计算物品相似度，那么就需要
+# movie rate user rate movie 这样的关系，然后通过两个 rate 评分计算物品相似度。
+# 基于物品的协同过滤适用于物品少用户多的情况，比如我们这里的电影推荐系统。
+def build_item_similarity(user_id, users_common, threshold_sim):
+    start = time.time()
+    current_user_grade_dict = dict()
+    query_rated_movie_by_user_id(user_id)
+    grades = graph.run(f"""
+            MATCH (User{{id:{user_id}}})-[r:RATED]-(m:Movie) RETURN m, r
+        """)
+    for grade_record in grades:
+        movie = grade_record["m"]
+        grade = grade_record["r"]
+        current_user_grade_dict[str(movie.identity)] = grade["grading"]
+
+    movie_similarity_table = dict()
+    # users_common 指的是同时看过两个电影的 user 的数量
+    for movie_id in current_user_grade_dict.keys():
+        similarities = session.run(f"""
+                    MATCH (m1:Movie)-[r1:RATED]-(u:User)-[r2:RATED]-(m2:Movie)
+                    WHERE id(m1) = {int(movie_id)}
+                    WITH
+                        m1, m2, 
+                        COUNT(u) AS users_common,
+                        SUM(r1.grading * r2.grading) / (SQRT(SUM(r1.grading^2)) * SQRT(SUM(r2.grading^2))) AS sim
+                    WHERE users_common >= {users_common}
+                    MERGE (m1)-[s:SIMILARITY]-(m2)
+                    SET s.sim = sim
+                    RETURN m1, m2, s
+                """)
+        for sim_record in similarities:
+            movie1_id = str(sim_record["m1"].id)
+            movie2_id = str(sim_record["m2"].id)
+            similarity = sim_record["s"]
+            if movie1_id not in movie_similarity_table.keys():
+                movie_similarity_table[movie1_id] = dict()
+            movie_similarity_table[movie1_id][movie2_id] = similarity["sim"]
+    end = time.time()
+    print("build_item_similarity: " + str(end - start) + "s")
+    return movie_similarity_table
+
+
+def delete_item_similarity():
+    session.run(f"""
+            MATCH (m1:Movie)-[s:SIMILARITY]-(m2:Movie)
+            DELETE s
+        """)
+
+
+# 如果之前通过评分矩阵计算的是物品相似度，则可以融合物品相似度与语义相似度矩阵进行评估
 def calculate_collaborative_filter_recommendation_rank(user_id, k, users_common, m):
     start = time.time()
     result = session.run(f"""
@@ -123,18 +173,26 @@ def calculate_collaborative_filter_recommendation_rank(user_id, k, users_common,
 
 def query_movie_recommmender_num_and_genres_by_title(title):
     # start = time.time()
+    # query_result = graph.run(f"""
+    #         MATCH (u:User)-[:RATED]-(m:Movie{{title:\"{title}\"}})
+    #         OPTIONAL MATCH (m)--(g:Genre)
+    #         WITH COUNT(u) AS recommender_num, COLLECT(DISTINCT g.genre) AS genres
+    #         RETURN recommender_num, genres
+    #     """).data()[0]
     query_result = graph.run(f"""
-            MATCH (u:User)-[:RATED]-(m:Movie{{title:\"{title}\"}})
-            OPTIONAL MATCH (m)--(g:Genre)
-            WITH COUNT(u) AS recommender_num, COLLECT(DISTINCT g.genre) AS genres 
-            RETURN recommender_num, genres
-        """).data()[0]
-    recommender_num = query_result["recommender_num"]
+                MATCH (m:Movie{{title:\"{title}\"}})--(g:Genre)
+                RETURN COLLECT(DISTINCT g.genre) AS genres 
+            """).data()[0]
+    # recommender_num = query_result["recommender_num"]
     genres = query_result["genres"]
     # end = time.time()
     # print("query_movie_recommmender_num_and_genres_by_title: " + str(end - start) + "s")
-    return recommender_num, genres
+    return 0, genres
 
 
 if __name__ == '__main__':
-    query_movie_recommmender_num_and_genres_by_title("Dogma")
+    load_data()
+    # delete_item_similarity()
+    # build_item_similarity(440, 2, 0.9)
+    # delete_item_similarity()
+    # query_movie_recommmender_num_and_genres_by_title("Dogma")
