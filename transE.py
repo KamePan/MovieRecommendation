@@ -36,7 +36,7 @@ def data_loader(user_id):
     start_data_loader = time.time()
     uri = "neo4j://localhost:7687"
     graph = Graph(uri, auth=("neo4j", "pan151312"))
-    driver = GraphDatabase.driver(uri, auth=("neo4j", "pan151312"))
+    driver = GraphDatabase.driver(uri, auth=("neo4j", "pan151312"), max_connection_lifetime=200)
     session = driver.session()
 
     entity_set = set()
@@ -378,8 +378,10 @@ def query_merged_recommendation_top_k_by_user_id(user_id, recommend_num=10, a=1.
     transE.train(epochs=50)
     end_translate_train = time.time()
     print("TransE train time: " + str(end_translate_train - start_translate_train) + "s")
-    # 得到协同过滤的物品相似度表
+
+    '''得到协同过滤的物品相似度表'''
     current_user_rated_movie_similarity_table = cf.query_current_user_rated_movie_similarity_table(user_id)
+
     start_predict = time.time()
     predict_list = []
     for movie1 in movie_set:  # 遍历所有电影
@@ -404,7 +406,6 @@ def query_merged_recommendation_top_k_by_user_id(user_id, recommend_num=10, a=1.
             if movie1 in current_user_rated_movie_similarity_table[movie2].keys():
                 cf_similarity = current_user_rated_movie_similarity_table[movie2][movie1]
             merged_similarity = a * similarity + (1 - a) * cf_similarity
-            # print(f" ({merged_similarity}   {similarity}) ")
             # 未评分电影 movie1 和评分电影 movie2 相似度与 movie1 评分
             movie1_predict += merged_similarity * current_user_grade_dict[movie2]
             similarity_sum += abs(merged_similarity)

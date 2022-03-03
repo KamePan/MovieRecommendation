@@ -22,9 +22,31 @@ def analyse_netflix_tmdb_dataset():
     print(f"union movie: {len(union_movie)}")
     print(f"diff movie: {len(diff_movie)}")
 
+
 def analyse_movie_json():
     movie_json_dataframe = pandas.read_json("./dataset/dbmovies.json", orient='record')
-    print(movie_json_dataframe)
+    movie_csv_dataframe = pandas.read_csv("./dataset/movies.csv")
+    movie_rating_dataframe = pandas.read_csv("./dataset/ratings.csv")
+    json_movie_set = set()
+    csv_movie_set = set()
+    csv_movie_title_id_dict = dict()
+    rated_movie_id_set = set()
+    for item in movie_json_dataframe['title']:
+        json_movie_set.add(item)
+    for index, item in movie_csv_dataframe.iterrows():
+        # print(item)
+        csv_movie_set.add(item['NAME'])
+        csv_movie_title_id_dict[item['NAME']] = item['MOVIE_ID']
+    for item in movie_rating_dataframe['MOVIE_ID']:
+        rated_movie_id_set.add(item)
+    intersection_movie = json_movie_set.intersection(csv_movie_set)
+    intersection_movie_id = set()
+    for item in intersection_movie:
+        intersection_movie_id.add(csv_movie_title_id_dict[item])
+    print(f"json movie: {len(json_movie_set)}")
+    print(f"csv movie: {len(csv_movie_set)}")
+    print(f"intersection movie: {len(intersection_movie)}")
+    print(f"intersection rated movie: {len(intersection_movie_id.intersection(rated_movie_id_set))}")
 
 
 if __name__ == '__main__':
