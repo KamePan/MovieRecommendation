@@ -68,7 +68,9 @@ def process_dataset():
     rating_movie_dict = dict()
     rating_movie_set = set()
     out_grade_new = open('./dataset/out_grade_new.csv', 'w')
+    out_user_new = open('./dataset/out_user_new.csv', 'w')
     out_grade_new.write('user_id,title,grade\n')
+    out_user_new.write('user_id\n')
     for index, item in movie_dataframe.iterrows():
         rating_movie_dict[item['MOVIE_ID']] = item['NAME']
         rating_movie_set.add(item['NAME'])
@@ -93,12 +95,14 @@ def process_dataset():
         rating_movie_grade = item['RATING']
         rating_movie_user_md5 = item['USER_MD5']
         if rating_movie_user_md5 not in user_md5_id_dict.keys():
+            out_user_new.write(f'{user_id_auto_increment}\n')
             user_md5_id_dict[rating_movie_user_md5] = user_id_auto_increment
             user_id_auto_increment += 1
         out_grade_new.write(f'{user_md5_id_dict[rating_movie_user_md5]},{rating_movie_title},{rating_movie_grade}\n')
     print(f"rating_cnt_before: {rating_cnt_before}")
     print(f"rating_cnt_after: {rating_cnt_after}")
     print(f"not_rating_cnt: {not_rating_cnt}")
+    print(f"user_cnt: {user_id_auto_increment}")
 
 
 def load_meta_data():
@@ -109,52 +113,58 @@ def load_meta_data():
     '''删除数据库中原有的实体和关系'''
     session.run("""MATCH ()-[r]->() DELETE r""")
     session.run("""MATCH (r) DELETE r""")
+    session.run("""DROP INDEX ON :Movie(title)""")
 
     '''将 csv 文件中的电影、类型、演员、导演、地区数据加载到 neo4j 中'''
+    '''"file:///var/lib/neo4j/import/movie_dataset/out_movie_new.csv" 为 docker 启动 neo4j 时的路径'''
     print("Loading movies...")
     session.run("""
-            LOAD CSV WITH HEADERS FROM "file:///var/lib/neo4j/import/movie_dataset/out_movie_new.csv" AS csv
-            CREATE (:Movie {title: csv.title})        
+            LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_movie_new.csv" AS csv
+            CREATE (:Movie {title: csv.title})    
+        """)
+
+    session.run("""
+            CREATE INDEX ON :Movie(title)
         """)
 
     print("Loading categories...")
     session.run("""
-            LOAD CSV WITH HEADERS FROM "file:///var/lib/neo4j/import/movie_dataset/out_category_new.csv" AS csv
-            CREATE (m:Movie {title: csv.title})
-            CREATE (c:Category {category: csv.category})
-            MERGE (m)-[:HAS_CATEGORY]->(c)        
+            LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_category_new.csv" AS csv
+            MATCH (m:Movie {title: csv.title})
+            MERGE (c:Category {category: csv.category})
+            CREATE (m)-[:HAS_CATEGORY]->(c)        
         """)
 
     print("Loading actors...")
     session.run("""
-            LOAD CSV WITH HEADERS FROM "file:///var/lib/neo4j/import/movie_dataset/out_actor_new.csv" AS csv
-            CREATE (m:Movie {title: csv.title})
-            CREATE (a:Actor {name: csv.actor})
-            MERGE (a)-[:ACT_IN]->(m)        
+            LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_actor_new.csv" AS csv
+            MATCH (m:Movie {title: csv.title})
+            MERGE (a:Actor {name: csv.actor})
+            CREATE (a)-[:ACT_IN]->(m)        
         """)
 
     print("Loading directors...")
     session.run("""
-            LOAD CSV WITH HEADERS FROM "file:///var/lib/neo4j/import/movie_dataset/out_director_new.csv" AS csv
-            CREATE (m:Movie {title: csv.title})
-            CREATE (d:Director {name: csv.director})
-            MERGE (m)-[:DIRECTED_BY]->(d)        
+            LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_director_new.csv" AS csv
+            MATCH (m:Movie {title: csv.title})
+            MERGE (d:Director {name: csv.director})
+            CREATE (m)-[:DIRECTED_BY]->(d)        
         """)
 
     print("Loading districts...")
     session.run("""
-            LOAD CSV WITH HEADERS FROM "file:///var/lib/neo4j/import/movie_dataset/out_district_new.csv" AS csv
-            CREATE (m:Movie {title: csv.title})
-            CREATE (d:District {district: csv.district})
-            MERGE (m)-[:FILMED_IN]->(d)        
+            LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_district_new.csv" AS csv
+            MATCH (m:Movie {title: csv.title})
+            MERGE (d:District {district: csv.district})
+            CREATE (m)-[:FILMED_IN]->(d)        
         """)
 
     print("Loading languages...")
     session.run("""
-            LOAD CSV WITH HEADERS FROM "file:///var/lib/neo4j/import/movie_dataset/out_language_new.csv" AS csv
-            CREATE (m:Movie {title: csv.title})
-            CREATE (l:Language {language: csv.language})
-            MERGE (m)-[:HAS_LANGUAGE]->(l)        
+            LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_language_new.csv" AS csv
+            MATCH (m:Movie {title: csv.title})
+            MERGE (l:Language {language: csv.language})
+            CREATE (m)-[:HAS_LANGUAGE]->(l)        
         """)
 
 
@@ -166,16 +176,28 @@ def load_rating_data():
     '''删除数据库中原有的用户实体和评分关系'''
     session.run("""MATCH ()-[r:RATED]->() DELETE r""")
     session.run("""MATCH (u:User) DELETE u""")
+    session.run("DROP INDEX ON :User(id)")
+
+    print("Loading users...")
+    session.run("""
+            LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_user_new.csv" AS csv
+            CREATE (:User {id: csv.user_id})    
+        """)
+
+    session.run("""
+            CREATE INDEX ON :User(id)
+        """)
 
     print("Loading gradings...")
     session.run("""
-            LOAD CSV WITH HEADERS FROM "file:///var/lib/neo4j/import/movie_dataset/out_grade_new.csv" AS csv
-            CREATE (m:Movie {title: csv.title})
-            CREATE (u:User {id: toInteger(csv.user_id)})
-            MERGE (u)-[:RATED {grading: toInteger(csv.grade)}]->(m)        
+            LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_grade_new.csv" AS csv
+            MATCH (m:Movie {title: csv.title})
+            MATCH (u:User {id: toInteger(csv.user_id)})
+            CREATE (u)-[:RATED {grading: toInteger(csv.grade)}]->(m)        
         """)
 
 
 if __name__ == '__main__':
     # process_dataset()
     load_meta_data()
+    load_rating_data()
