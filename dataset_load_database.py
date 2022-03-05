@@ -6,60 +6,13 @@ def process_dataset():
     """
     处理包含电影元数据信息的 json 文件以及评分数据 csv 文件
     """
-    movie_metadata_dataframe = pandas.read_json('./dataset/dbmovies.json', orient='record')
-    metadata_movie_set = set()
+    '''处理电影元数据信息'''
+    metadata_movie_set = process_movie_metadata()
+    '''处理电影评分信息'''
+    # process_movie_rating_data(metadata_movie_set)
 
-    """
-    对于 json 中份元数据信息，将电影title和其他电影内涵实体关系导入csv文件
-    """
-    out_movie_new = open('./dataset/out_movie_new.csv', 'w')
-    out_director_new = open('./dataset/out_director_new.csv', 'w')
-    out_actor_new = open('./dataset/out_actor_new.csv', 'w')
-    out_district_new = open('./dataset/out_district_new.csv', 'w')
-    out_category_new = open('./dataset/out_category_new.csv', 'w')
-    out_language_new = open('./dataset/out_language_new.csv', 'w')
-    out_movie_new.write('title\n')
-    out_director_new.write('title,director\n')
-    out_actor_new.write('title,actor\n')
-    out_district_new.write('title,district\n')
-    out_category_new.write('title,category\n')
-    out_language_new.write('title,language\n')
 
-    for index, item in movie_metadata_dataframe.iterrows():
-        title = item['title'].replace('\"', ' ')
-        title = '\"' + title + '\"'
-        directors = item['director']
-        actors = item['actor']
-        districts = item['district']
-        categories = item['category']
-        languages = item['language']
-
-        metadata_movie_set.add(title)
-
-        out_movie_new.write(f'{title}\n')
-        # 需要 id 吗，按道理是需要，但是我的实现里用的是 neo4j 的隐含 id，到时候返回推荐的 title，再用 title 查 mysql 表就行
-        # python 这边利用知识图谱给出推荐结果，再通过 java 端查询 mysql 数据库给出元数据信息展示
-
-        if directors is not None:
-            for director in directors:
-                out_director_new.write(f'{title},\"{director}\"\n')
-
-        if actors is not None:
-            for actor in actors:
-                out_actor_new.write(f'{title},\"{actor}\"\n')
-
-        if directors is not None:
-            for district in districts:
-                out_district_new.write(f'{title},\"{district}\"\n')
-
-        if categories is not None:
-            for category in categories:
-                out_category_new.write(f'{title},\"{category}\"\n')
-
-        if languages is not None:
-            for language in languages:
-                out_language_new.write(f'{title},\"{language}\"\n')
-
+def process_movie_rating_data(metadata_movie_set):
     """
     提取电影评分信息 (user, title, grade)
     """
@@ -103,6 +56,63 @@ def process_dataset():
     print(f"rating_cnt_after: {rating_cnt_after}")
     print(f"not_rating_cnt: {not_rating_cnt}")
     print(f"user_cnt: {user_id_auto_increment}")
+
+
+def process_movie_metadata():
+    """
+    对于 json 中份元数据信息，将电影title和其他电影内涵实体关系导入csv文件
+    """
+    movie_metadata_dataframe = pandas.read_json('./dataset/dbmovies.json', orient='record')
+    metadata_movie_set = set()
+
+    out_movie_new = open('./dataset/out_movie_new.csv', 'w')
+    out_director_new = open('./dataset/out_director_new.csv', 'w')
+    out_actor_new = open('./dataset/out_actor_new.csv', 'w')
+    out_district_new = open('./dataset/out_district_new.csv', 'w')
+    out_category_new = open('./dataset/out_category_new.csv', 'w')
+    out_language_new = open('./dataset/out_language_new.csv', 'w')
+    out_movie_new.write('title\n')
+    out_director_new.write('title,director\n')
+    out_actor_new.write('title,actor\n')
+    out_district_new.write('title,district\n')
+    out_category_new.write('title,category\n')
+    out_language_new.write('title,language\n')
+    for index, item in movie_metadata_dataframe.iterrows():
+        title = item['title'].replace('\"', ' ')
+        title = '\"' + title + '\"'
+        if title in metadata_movie_set:
+            continue
+        directors = item['director']
+        actors = item['actor']
+        districts = item['district']
+        categories = item['category']
+        languages = item['language']
+        metadata_movie_set.add(title)
+        out_movie_new.write(f'{title}\n')
+        # 需要 id 吗，按道理是需要，但是我的实现里用的是 neo4j 的隐含 id，到时候返回推荐的 title，再用 title 查 mysql 表就行
+        # python 这边利用知识图谱给出推荐结果，再通过 java 端查询 mysql 数据库给出元数据信息展示
+
+        if directors is not None:
+            for director in directors:
+                out_director_new.write(f'{title},\"{director}\"\n')
+
+        if actors is not None:
+            for actor in actors:
+                out_actor_new.write(f'{title},\"{actor}\"\n')
+
+        if directors is not None:
+            for district in districts:
+                out_district_new.write(f'{title},\"{district}\"\n')
+
+        if categories is not None:
+            for category in categories:
+                out_category_new.write(f'{title},\"{category}\"\n')
+
+        if languages is not None:
+            for language in languages:
+                out_language_new.write(f'{title},\"{language}\"\n')
+    print(f"录入电影数: {len(metadata_movie_set)}")
+    return metadata_movie_set
 
 
 def load_meta_data():
@@ -198,6 +208,6 @@ def load_rating_data():
 
 
 if __name__ == '__main__':
-    # process_dataset()
-    load_meta_data()
-    load_rating_data()
+    process_dataset()
+    # load_meta_data()
+    # load_rating_data()

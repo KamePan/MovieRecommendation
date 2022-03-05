@@ -58,10 +58,10 @@ def data_loader(user_id):
 
     start = time.time()
     all_relations = session.run(f"""
-            MATCH ()-[relation]->() RETURN relation
+            MATCH ()-[r]->() WHERE type(r) <> "RATED" RETURN r
         """)
     end = time.time()
-    print("Query All Relation: " + str(end - start) + "s")
+    print("Query All Relation Except RATED: " + str(end - start) + "s")
 
     # 若在处理关系的时候处理实体集，由于关系中的实体是重复的，因此会被重复添加到实体集中
     # 这个循环的复杂度也就变为了 relation 数量级的处理，加上两倍 relation 数量的头尾节点 Node 的处理
@@ -73,7 +73,7 @@ def data_loader(user_id):
     for relation_record in all_relations:
         s = time.time()
         total_interval += s - e
-        relation = relation_record["relation"]
+        relation = relation_record["r"]
         start_entity = relation.start_node
         end_entity = relation.end_node
         relation_type = relation.type
@@ -89,8 +89,9 @@ def data_loader(user_id):
     print("Process Relation: " + str(end - start) + "s")
 
     start = time.time()
+    '''查询除了 User 外的其他节点'''
     all_entities = graph.run(f"""
-                MATCH (n) RETURN n
+                MATCH (n) WHERE labels(n) <> ["User"] RETURN n
             """)
     for entity_record in all_entities:
         entity = entity_record["n"]
@@ -179,7 +180,7 @@ class TransE:
             # print("epoch: ", epoch, "cost time: %s" % (round((end - start), 3)))
             # print("loss: ", self.loss)
             # loss_ls.append(self.loss)
-
+        print("TransE trains over...")
             # 保存临时结果
             # if epoch % 20 == 0:
             #     with codecs.open("entity_temp", "w") as f_e:

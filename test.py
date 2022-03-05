@@ -1,5 +1,6 @@
 from neo4j import GraphDatabase
 import pandas as pd
+import sklearn.model_selection
 
 uri = "neo4j://localhost:7687"
 driver = GraphDatabase.driver(uri, auth=("neo4j", "pan151312"))
@@ -89,12 +90,41 @@ def testListSort():
     print(sorted(list_a, key=(lambda x: x[1])))
 
 
-def test_list_dict():
-    list_dict = dict()
-    list_dict[[1, 2]] = 3
-    test_list = [1, 2]
-    print(list_dict[test_list])
+def test_tuple_dict():
+    tuple_dict = dict()
+    tuple_dict[("1", "2")] = 3
+    test_tuple = ("2", "1")
+    print(tuple_dict[test_tuple])
+
+
+def test_cf():
+    uri = "neo4j://localhost:7687"
+    driver = GraphDatabase.driver(uri, auth=("neo4j", "pan151312"), max_connection_lifetime=200)
+    session = driver.session()
+    query_result = session.run(f"""
+                    MATCH (m1:Movie{{title:"故事的故事"}})-[r1:RATED]-(u:User)-[r2:RATED]-(m2:Movie{{title:"人类之子"}})
+                    WITH 
+                    SUM(r1.grading * r2.grading) / (SQRT(SUM(r1.grading^2)) * SQRT(SUM(r2.grading^2))) AS similarity,
+                    COUNT(u) AS user_cnt
+                    WHERE user_cnt > 0
+                    RETURN similarity
+                """)
+
+    print(len(query_result.data()))
+
+
+def test_train_test_split():
+    data_set = set()
+    data_set.add("1")
+    data_set.add("4")
+    data_set.add("9")
+    data_set.add("10")
+    data_set.add("23")
+    data_list = ["2", "4", "6", "12", "53"]
+    train_set, test_set = sklearn.model_selection.train_test_split(data_list, test_size=0.3)
+    print(train_set)
+    print(test_set)
 
 
 if __name__ == '__main__':
-    test_list_dict()
+    test_train_test_split()
