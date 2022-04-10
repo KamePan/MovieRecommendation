@@ -191,7 +191,7 @@ def load_rating_data():
     print("Loading users...")
     session.run("""
             LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_user_new.csv" AS csv
-            CREATE (:User {id: csv.user_id})    
+            CREATE (:User {id: toInteger(csv.user_id)})    
         """)
 
     session.run("""
@@ -203,11 +203,11 @@ def load_rating_data():
             LOAD CSV WITH HEADERS FROM "file:///movie_dataset/out_grade_new.csv" AS csv
             MATCH (m:Movie {title: csv.title})
             MATCH (u:User {id: toInteger(csv.user_id)})
-            CREATE (u)-[:RATED {grading: toInteger(csv.grade)}]->(m)        
+            CREATE (u)-[:RATED {grading: toInteger(csv.grade)}]->(m)
         """)
 
 
 if __name__ == '__main__':
-    process_dataset()
+    # process_dataset()
     # load_meta_data()
-    # load_rating_data()
+    load_rating_data()

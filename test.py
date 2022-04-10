@@ -121,7 +121,8 @@ def test_train_test_split():
     data_set.add("10")
     data_set.add("23")
     data_list = ["2", "4", "6", "12", "53"]
-    train_set, test_set = sklearn.model_selection.train_test_split(data_list, test_size=0.3)
+    data_dict = {"a":"SD", "b":"sdf"}
+    train_set, test_set = sklearn.model_selection.train_test_split(list(data_dict.keys()), test_size=0.3)
     print(train_set)
     print(test_set)
 

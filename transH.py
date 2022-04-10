@@ -8,6 +8,7 @@ from neo4j import GraphDatabase
 from py2neo import Graph
 
 import database as db
+import matplotlib.pyplot as plt
 
 entity2id = {}
 relation2id = {}
@@ -94,17 +95,17 @@ def data_loader(user_id):
     sum2 / sum1 指的是结点出现在该关系的三元组中作为头结点的平均次数，即每个头结点对应的尾结点平均数量
     尾结点对应头结点平均数量也同理
     '''
-    for relation_type in relation_head_cnt:
+    for relation_type in relation_head_cnt.keys():
         sum1, sum2 = 0, 0
-        for head in relation_head_cnt[relation_type]:
+        for head in relation_head_cnt[relation_type].keys():
             sum1 += 1
             sum2 += relation_head_cnt[relation_type][head]
         tph = sum2 / sum1
         relation_tph[relation_type] = tph
 
-    for relation_type in relation_tail_cnt:
+    for relation_type in relation_tail_cnt.keys():
         sum1, sum2 = 0, 0
-        for tail in relation_tail_cnt[relation_type]:
+        for tail in relation_tail_cnt[relation_type].keys():
             sum1 += 1
             sum2 += relation_tail_cnt[relation_type][tail]
         hpt = sum2 / sum1
@@ -140,12 +141,11 @@ def data_loader(user_id):
     return entity_set, relation_set, triple_list, movie_set, movie_dict, current_user_grade_dict
 
 
-def norm_l1(h, r, t):
-    return np.sum(np.fabs(h + r - t))
 
 
 class TransH:
-    def __init__(self, entity_set, relation_set, triple_list, embedding_dim=20, learning_rate=0.01, margin=1.0, norm=1, C=1.0, epsilon = 1e-5):
+    def __init__(self, entity_set, relation_set, triple_list, embedding_dim=20, learning_rate=0.01, margin=1.0, norm=1,
+                 C=1.0, epsilon=1e-5):
         self.entities = entity_set
         self.relations = relation_set
         self.triples = triple_list
@@ -164,25 +164,29 @@ class TransH:
         relationNormVectorList = {}
         relationHyperVectorList = {}
         for entity in self.entities:
-            entity_vector = np.random.uniform(-6.0 / np.sqrt(self.dimension), 6.0 / np.sqrt(self.dimension),
+            entity_vector = np.random.uniform(-6.0 / np.sqrt(self.dimension),
+                                              6.0 / np.sqrt(self.dimension),
                                               self.dimension)
             entityVectorList[entity] = entity_vector
-
         for relation in self.relations:
-            relation_norm_vector = np.random.uniform(-6.0 / np.sqrt(self.dimension), 6.0 / np.sqrt(self.dimension),
-                                                self.dimension)
-            relation_hyper_vector = np.random.uniform(-6.0 / np.sqrt(self.dimension), 6.0 / np.sqrt(self.dimension),
-                                                self.dimension)
+            relation_norm_vector = np.random.uniform(-6.0 / np.sqrt(self.dimension),
+                                                     6.0 / np.sqrt(self.dimension),
+                                                     self.dimension)
+            relation_hyper_vector = np.random.uniform(-6.0 / np.sqrt(self.dimension),
+                                                      6.0 / np.sqrt(self.dimension),
+                                                      self.dimension)
             relation_norm_vector = self.normalization(relation_norm_vector)
             relation_hyper_vector = self.normalization(relation_hyper_vector)
             relationNormVectorList[relation] = relation_norm_vector
             relationHyperVectorList[relation] = relation_hyper_vector
-
         self.entities = entityVectorList
         self.norm_relations = relationNormVectorList
         self.hyper_relations = relationHyperVectorList
 
     def train(self, epochs=50, nbatches=400):
+        """"""
+        epoch_loss_list = dict()
+        '''这里和 TransE 相同，将三元组划分为 nbatches 组，并计算出每组所含三元组数量 batch_size'''
         batch_size = int(len(self.triples) / nbatches)
         print("batch size: ", batch_size)
         for epoch in range(epochs):
@@ -192,75 +196,71 @@ class TransH:
             for entity in self.entities:
                 self.entities[entity] = self.normalization(self.entities[entity])
 
-            for batch in range(nbatches):
-                batch_samples = random.sample(self.triples, batch_size)
+            '''TransE 这里不需要遍历每个组，为什么 TransH 则需要，因此先去掉该重循环'''
+            # for batch in range(nbatches):
+            Sbatch = random.sample(self.triples, batch_size)
+            Tbatch = []
+            '''这里对 Sbatch 中的三元组都进行破坏，即构造负采样中的错误三元组'''
+            '''将错误三元组加入 Tbatch 中，得到错误三元组集合 Tbatch'''
+            for triple in Sbatch:
+                corrupted_triple = self.corrupt(triple)
+                if (triple, corrupted_triple) not in Tbatch:
+                    Tbatch.append((triple, corrupted_triple))
+            '''通过梯度下降算法更新梯度与参数'''
+            self.update_triple_embedding(Tbatch)
+            '''统计损失函数值随 epoch 的变化情况，用于绘制变化情况表'''
+            epoch_loss_list[epoch] = self.loss
 
-                Tbatch = []
-                for sample in batch_samples:
-                    corrupted_sample = copy.deepcopy(sample)
-                    pr = np.random.random(1)[0]
-                    p = relation_tph[corrupted_sample[2]] / (
-                                relation_tph[corrupted_sample[2]] + relation_hpt[corrupted_sample[2]])
-                    '''
-                    这里关于p的说明 tph 表示每一个头结对应的平均尾节点数 hpt 表示每一个尾节点对应的平均头结点数
-                    当tph > hpt 时 更倾向于替换头 反之则跟倾向于替换尾实体
-
-                    举例说明 
-                    在一个知识图谱中，一共有10个实体 和n个关系，如果其中一个关系使两个头实体对应五个尾实体，
-                    那么这些头实体的平均 tph为2.5，而这些尾实体的平均 hpt只有0.4，
-                    则此时我们更倾向于替换头实体，
-                    因为替换头实体才会有更高概率获得正假三元组，如果替换头实体，获得正假三元组的概率为 8/9 而替换尾实体获得正假三元组的概率只有 5/9
-                    '''
-                    if pr < p:
-                        # change the head entity
-                        corrupted_sample[0] = random.sample(self.entities.keys(), 1)[0]
-                        while corrupted_sample[0] == sample[0]:
-                            corrupted_sample[0] = random.sample(self.entities.keys(), 1)[0]
-                    else:
-                        # change the tail entity
-                        corrupted_sample[1] = random.sample(self.entities.keys(), 1)[0]
-                        while corrupted_sample[1] == sample[1]:
-                            corrupted_sample[1] = random.sample(self.entities.keys(), 1)[0]
-
-                    if (sample, corrupted_sample) not in Tbatch:
-                        Tbatch.append((sample, corrupted_sample))
-
-                self.update_triple_embedding(Tbatch)
             end = time.time()
             print("epoch: ", epoch, "cost time: %s" % (round((end - start), 3)))
             print("running loss: ", self.loss)
+        '''显示损失函数 loss 随 epoch 变化表'''
+        plt.plot(epoch_loss_list.keys(), epoch_loss_list.values())
+        plt.show()
 
-        # with codecs.open("entity_" + str(self.dimension) + "dim_batch" + str(batch_size), "w") as f1:
-        #
-        #     for e in self.entities:
-        #         f1.write(e + "\t")
-        #         f1.write(str(list(self.entities[e])))
-        #         f1.write("\n")
-        #
-        # with codecs.open("relation_norm_" + str(self.dimension) + "dim_batch" + str(batch_size), "w") as f2:
-        #     for r in self.norm_relationsc:
-        #         f2.write(r + "\t")
-        #         f2.write(str(list(self.norm_relations[r])))
-        #         f2.write("\n")
-        #
-        # with codecs.open("relation_hyper_" + str(self.dimension) + "dim_batch" + str(batch_size), "w") as f3:
-        #     for r in self.hyper_relations:
-        #         f3.write(r + "\t")
-        #         f3.write(str(list(self.hyper_relations[r])))
-        #         f3.write("\n")
+    def corrupt(self, triple):
+        corrupted_triple = copy.deepcopy(triple)
+        pr = np.random.random(1)[0]
+        p = relation_tph[corrupted_triple[2]] / \
+            (relation_tph[corrupted_triple[2]] + relation_hpt[corrupted_triple[2]])
+        '''
+        这里关于p的说明 tph 表示每一个头结对应的平均尾节点数 hpt 表示每一个尾节点对应的平均头结点数
+        当tph > hpt 时 更倾向于替换头 反之则跟倾向于替换尾实体
+
+        举例说明 
+        在一个知识图谱中，一共有10个实体 和n个关系，如果其中一个关系使两个头实体对应五个尾实体，
+        那么这些头实体的平均 tph为2.5，而这些尾实体的平均 hpt只有0.4，
+        则此时我们更倾向于替换头实体，
+        因为替换头实体才会有更高概率获得正假三元组，如果替换头实体，获得正假三元组的概率为 8/9 而替换尾实体获得正假三元组的概率只有 5/9
+        '''
+        if pr < p:
+            # change the head entity
+            corrupted_triple[0] = random.sample(self.entities.keys(), 1)[0]
+            while corrupted_triple[0] == triple[0]:
+                corrupted_triple[0] = random.sample(self.entities.keys(), 1)[0]
+        else:
+            # change the tail entity
+            corrupted_triple[1] = random.sample(self.entities.keys(), 1)[0]
+            while corrupted_triple[1] == triple[1]:
+                corrupted_triple[1] = random.sample(self.entities.keys(), 1)[0]
+        return corrupted_triple
 
     def normalization(self, vector):
         return vector / np.linalg.norm(vector)
 
     def norm_l2(self, h, r_norm, r_hyper, t):
-        return np.sum(np.square(h - np.dot(r_norm, h) * r_norm  + r_hyper - t + np.dot(r_norm, t) * r_norm))
+        return np.sum(np.square(h - np.dot(r_norm, h) * r_norm + r_hyper - t + np.dot(r_norm, t) * r_norm))
+
+    def norm_l1(self, h, r, t):
+        return np.sum(np.fabs(h + r - t))
 
     # 知乎上询问过清华的大佬对于软约束项的建议 模长约束对结果收敛有影响，但是正交约束影响很小所以模长约束保留，正交约束可以不加
     def scale_entity(self, h, t, h_c, t_c):
-        return np.linalg.norm(h)**2 - 1 +np.linalg.norm(t)**2 - 1+np.linalg.norm(h_c)**2 - 1 + np.linalg.norm(t_c)**2 - 1
+        return np.linalg.norm(h) ** 2 - 1 + np.linalg.norm(t) ** 2 - 1 + np.linalg.norm(h_c) ** 2 - 1 + np.linalg.norm(
+            t_c) ** 2 - 1
 
     def orthogonality(self, norm, hyper):
-        return np.dot(norm, hyper)**2/np.linalg.norm(hyper)**2 - self.epsilon**2
+        return np.dot(norm, hyper) ** 2 / np.linalg.norm(hyper) ** 2 - self.epsilon ** 2
 
     def update_triple_embedding(self, Tbatch):
         # deepcopy 可以保证，即使list嵌套list也能让各层的地址不同， 即这里copy_entity 和
@@ -298,27 +298,28 @@ class TransH:
             if loss > 0:
                 self.loss += loss
                 i = np.ones(self.dimension)
-                correct_gradient = 2 * (correct_head - np.dot(relation_norm, correct_head) * relation_norm +
-                                        relation_hyper - correct_tail +
-                                        np.dot(relation_norm, correct_tail) *
-                                        relation_norm) * (i - relation_norm**2)
-                corrupted_gradient = 2 * (corrupted_head - np.dot(relation_norm, corrupted_head) * relation_norm +
-                                        relation_hyper - corrupted_tail +
-                                        np.dot(relation_norm, corrupted_tail) *
-                                        relation_norm) * (i - relation_norm**2)
-                hyper_gradient = 2 * (correct_head - np.dot(relation_norm, correct_head) * relation_norm  +
-                                       - correct_tail + np.dot(relation_norm, correct_tail)
-                                     * relation_norm)- 2 * (corrupted_head - np.dot(relation_norm, corrupted_head) * relation_norm  +
-                                     - corrupted_tail +
-                                        np.dot(relation_norm, corrupted_tail) *
-                                        relation_norm)
-                norm_gradient = 2 * (correct_head - np.dot(relation_norm, correct_head) * relation_norm +
-                                        relation_hyper - correct_tail +
-                                        np.dot(relation_norm, correct_tail) *
-                                        relation_norm) * (correct_tail - correct_head) * 2 * relation_norm - 2 * (corrupted_head - np.dot(relation_norm, corrupted_head) * relation_norm  +
-                                        relation_hyper - corrupted_tail +
-                                        np.dot(relation_norm, corrupted_tail) *
-                                        relation_norm) * (corrupted_tail - corrupted_head) * 2 * relation_norm
+                correct_gradient = 2 * (correct_head - np.dot(relation_norm, correct_head) * relation_norm + relation_hyper - correct_tail +
+                                        np.dot(relation_norm, correct_tail) * relation_norm) * (i - relation_norm ** 2)
+                corrupted_gradient = 2 * (corrupted_head - np.dot(relation_norm, corrupted_head) *
+                                          relation_norm + relation_hyper - corrupted_tail +
+                                          np.dot(relation_norm, corrupted_tail) *
+                                          relation_norm) * (i - relation_norm ** 2)
+                hyper_gradient = 2 * (correct_head - np.dot(relation_norm, correct_head) *
+                                      relation_norm + - correct_tail +
+                                      np.dot(relation_norm, correct_tail)
+                                      * relation_norm) - 2 * (
+                                             corrupted_head - np.dot(relation_norm, corrupted_head)
+                                             * relation_norm + - corrupted_tail +
+                                             np.dot(relation_norm, corrupted_tail) *
+                                             relation_norm)
+                norm_gradient = 2 * (correct_head - np.dot(relation_norm, correct_head) *
+                                     relation_norm +relation_hyper - correct_tail +
+                                     np.dot(relation_norm, correct_tail) *
+                                     relation_norm) * (correct_tail - correct_head) * 2 * relation_norm - 2 * (
+                                            corrupted_head - np.dot(relation_norm, corrupted_head) * relation_norm +
+                                            relation_hyper - corrupted_tail +
+                                            np.dot(relation_norm, corrupted_tail) *
+                                            relation_norm) * (corrupted_tail - corrupted_head) * 2 * relation_norm
 
                 correct_copy_head -= self.learning_rate * correct_gradient
                 relation_norm_copy -= self.learning_rate * norm_gradient
@@ -442,10 +443,9 @@ def query_recommendation_top_k_by_user_id(user_id, recommend_num=10):
     print("query_recommendation_top_k_by_user_id: " + str(end - start) + "s")
     return predict_list
 
+
 if __name__ == '__main__':
     entity_set, relation_set, triple_list, movie_set, movie_dict, current_user_grade_dict = data_loader(440)
-    transH = TransH(entity_set, relation_set, triple_list, embedding_dim=10, learning_rate=0.01, margin=1.0, norm=1)
+    transH = TransH(entity_set, relation_set, triple_list, embedding_dim=50, learning_rate=0.01, margin=1.0, norm=1)
     transH.emb_initialize()
-    transH.train()
-
-
+    transH.train(epochs=200)

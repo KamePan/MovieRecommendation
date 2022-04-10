@@ -1,6 +1,9 @@
 .App {
   text-align: center;
 }
+body {
+  background-color: rgba(55, 65, 81);
+}
 
 .App-logo {
   height: 40vmin;
@@ -56,4 +59,37 @@ button {
 
 .form {
   flex: 1;
+}
+
+.movie-info {
+  display: flex;
+  gap: 20px;
+}
+
+.movie-info .cover {
+  width: 200px;
+}
+
+.movie-info h1 {
+  text-align: left;
+  font-size: 26px;
+}
+
+.movie-details {
+  width: 300px;
+}
+
+.movie-info p {
+  margin: 0 0 4px 0;
+  text-align: left;
+}
+
+.movie-info p span:first-child {
+  display: inline-block;
+  font-weight: bold;
+  width: 75px;
+}
+
+p {
+  text-align: left;
 }

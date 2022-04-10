@@ -190,6 +190,69 @@ def query_movie_recommmender_num_and_genres_by_title(title):
     return 0, genres
 
 
+def query_entity_relation_set_and_triple_list():
+    print("获取实体、关系、三元组集合...")
+    start_time_load_data = time.time()
+    uri = "neo4j://localhost:7687"
+    driver = GraphDatabase.driver(uri, auth=("neo4j", "pan151312"), max_connection_lifetime=200)
+    session = driver.session()
+    entity_set = set()
+    relation_set = set()
+    triple_list = list()
+    query_relation_result = session.run("""
+            MATCH ()-[r]->() WHERE type(r) <> "RATED" RETURN r
+        """)
+    for relation_record in query_relation_result:
+        relation = relation_record["r"]
+        start_entity = relation.start_node
+        end_entity = relation.end_node
+        relation_type = relation.type
+        relation_set.add(relation_type)
+        triple_list.append([str(start_entity.id), str(end_entity.id), relation_type])
+
+    query_entity_result = session.run("""
+            MATCH (n) WHERE labels(n) <> ["User"] RETURN n
+        """)
+    for entity_record in query_entity_result:
+        entity = entity_record["n"]
+        entity_set.add(str(entity.id))
+    end_time_load_data = time.time()
+    print(f"获取实体、关系、三元组集合: {str(end_time_load_data - start_time_load_data)} s")
+    return entity_set, relation_set, triple_list
+
+
+def query_movie_dict():
+    """返回图数据库中的电影集合及 (ID, Title) 字典"""
+    uri = "neo4j://localhost:7687"
+    driver = GraphDatabase.driver(uri, auth=("neo4j", "pan151312"))
+    session = driver.session()
+    movie_set = set()
+    movie_dict = dict()
+    all_movies = session.run(f"""
+            MATCH (m:Movie) RETURN m
+        """)
+    for movie_record in all_movies:
+        movie = movie_record["m"]
+        movie_set.add(str(movie.id))
+        movie_dict[str(movie.id)] = movie["title"]
+    print("movie_set 中电影数量: " + str(len(movie_set)))
+    return movie_set, movie_dict
+
+
+def query_rating_dict_by_user_id(user_id):
+    """这里用户 ID 查询时为字符串类型"""
+    print(f'获取用户 {user_id} 评分信息...')
+    current_user_rating_dict = dict()
+    query_result = session.run(f"""
+            MATCH (User{{id:\'{user_id}\'}})-[r:RATED]-(m:Movie) RETURN m, r
+        """)
+    for rating_record in query_result:
+        movie = rating_record["m"]
+        rating = rating_record["r"]
+        current_user_rating_dict[str(movie.id)] = rating["grading"]
+    return current_user_rating_dict
+
+
 if __name__ == '__main__':
     load_data()
     # delete_item_similarity()
