@@ -1,6 +1,8 @@
 from neo4j import GraphDatabase
 import pandas as pd
 import sklearn.model_selection
+import math
+import matplotlib.pyplot as plt
 
 uri = "neo4j://localhost:7687"
 driver = GraphDatabase.driver(uri, auth=("neo4j", "pan151312"))
@@ -23,6 +25,7 @@ def test1(user_id=201):
         else:
             df = pd.DataFrame(result, columns=["title", "grade"])
             print(df.to_string(index=False))
+
 
 def recommend(user_id=201):
     with driver.session() as session:
@@ -127,5 +130,55 @@ def test_train_test_split():
     print(test_set)
 
 
+def get_mse(records_real, records_predict):
+    """
+    均方误差 估计值与真值 偏差
+    """
+    if len(records_real) == len(records_predict):
+        return sum([(x - y) ** 2 for x, y in zip(records_real, records_predict)]) / len(records_real)
+    else:
+        return None
+
+
+def get_rmse(records_real, records_predict):
+    """
+    均方根误差：是均方误差的算术平方根
+    """
+    mse = get_mse(records_real, records_predict)
+    if mse:
+        return math.sqrt(mse)
+    else:
+        return None
+
+
+def test_RMSE():
+    records1 = [3, 4, 5, 3, 12]
+    records2 = [2, 4, 6, 1, 4]
+    rmse = get_rmse(records1, records2)  # 0.81
+    print(rmse)
+
+
+def test_build_RMSE_Graph():
+    transE_RMSE = [1.0519, 1.0519, 1.0521, 1.0524, 1.0529, 1.0535]
+    transH_RMSE = [1.050689, 1.0507, 1.0509, 1.0513, 1.0519, 1.0526]
+    alpha_arr = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    plt.plot(alpha_arr, transE_RMSE)
+    plt.plot(alpha_arr, transH_RMSE)
+    # RMSE = [0, 0, 0, 0, 0, 0]
+    # for index in range(0, 6):
+    #     origin_list = origin_list_arr[index]
+    #     predict_list = predict_list_arr[index]
+    #     RMSE[index] = get_rmse(origin_list, predict_list)
+    # plt.plot(alpha_arr, RMSE)
+    plt.ylim((1.0500, 1.0550))
+    plt.xlabel('alpha')  # x轴标题
+    plt.ylabel('RMSE')  # y轴标题
+    # plt.legend(['TransE+Item-CF'])
+    plt.legend(['TransE+Item-CF', 'TransH+Item-CF '])
+    # plt.title('Use Euclidean Metric To Measure CF Item Similarity')
+    plt.title('Trans RMSE Graph')
+    plt.show()
+
+
 if __name__ == '__main__':
-    test_train_test_split()
+    test_build_RMSE_Graph()

@@ -1,7 +1,10 @@
+import math
 import time
 import pandas as pd
 import numpy as np
 from neo4j import GraphDatabase
+
+import transH
 from transE import TransE
 import database
 import sklearn.model_selection
@@ -40,15 +43,40 @@ def evaluate():
     '''计算协同过滤相似度矩阵'''
     cf_similarity_dict = calculate_cf_similarity_table(cf_movie_set)
     '''计算语义相似度矩阵'''
-    semantic_similarity_dict = calculate_semantic_similarity_table(semantic_movie_set)
+    semantic_transE_similarity_dict = calculate_semantic_similarity_table(semantic_movie_set, trans_type=1)
+    semantic_transH_similarity_dict = calculate_semantic_similarity_table(semantic_movie_set, trans_type=2)
     '''计算总体均方根误差RMSE'''
-    calculate_overall_RMSE(cf_similarity_dict, semantic_similarity_dict, user_rating_dict)
+    transE_RMSE = calculate_overall_RMSE(cf_similarity_dict, semantic_transE_similarity_dict, user_rating_dict)
+    transH_RMSE = calculate_overall_RMSE(cf_similarity_dict, semantic_transH_similarity_dict, user_rating_dict)
+    # origin_list_arr, predict_list_arr = calculate_overall_RMSE(cf_similarity_dict, semantic_transE_similarity_dict, user_rating_dict)
+    alpha_arr = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    plt.plot(alpha_arr, transE_RMSE)
+    plt.plot(alpha_arr, transH_RMSE)
+    # RMSE = [0, 0, 0, 0, 0, 0]
+    # for index in range(0, 6):
+    #     origin_list = origin_list_arr[index]
+    #     predict_list = predict_list_arr[index]
+    #     RMSE[index] = get_rmse(origin_list, predict_list)
+    # plt.plot(alpha_arr, RMSE)
+    plt.xlabel('alpha')  # x轴标题
+    plt.ylabel('RMSE')   # y轴标题
+    # plt.legend(['TransE+Item-CF'])
+    plt.legend(['TransE+Item-CF', 'TransH+Item-CF '])
+    # plt.title('Use Euclidean Metric To Measure CF Item Similarity')
+    plt.title('Use Cos Distance To Measure CF Item Similarity')
+    plt.show()
 
 
 def calculate_overall_RMSE(cf_similarity_dict, semantic_similarity_dict, user_rating_dict):
+    """"""
+    '''由于 RMSE 是根据所有用户测试集预测评分中的偏差值建立的'''
+    '''尝试使用建立预测评分列表和真实评分列表计算 RMSE'''
+    '''发现没什么区别，我之前算的均方误差值是正确的...'''
     # RMSE = 0
     sample_num = 0
-
+    origin_predict_txt = open("./result/out_origin_predict.txt", 'w')
+    predict_list = [list(), list(), list(), list(), list(), list()]
+    origin_list = [list(), list(), list(), list(), list(), list()]
     '''绘制评估指标图所用数组'''
     '''混合比例 alpha 数组'''
     '''RMSE 计算结果存储数组'''
@@ -92,12 +120,17 @@ def calculate_overall_RMSE(cf_similarity_dict, semantic_similarity_dict, user_ra
                     merge_similarity = alpha * semantic_similarity + (1 - alpha) * cf_similarity
                     predict_test_movie_rating_arr[index] += merge_similarity * user_rating_dict[user_id][train_movie]
                     similarity_sum_arr[index] += abs(merge_similarity)
+            origin_test_movie_rating = user_rating_dict[user_id][test_movie]
+            origin_predict_txt.write(f"{origin_test_movie_rating}")
+            '''这里通过 test_movie 的 predict_rating 与 origin_rating 计算 RMSE'''
             for index in range(0, 6):
                 predict_test_movie_rating_arr[index] /= similarity_sum_arr[index]
-                origin_test_movie_rating = user_rating_dict[user_id][test_movie]
                 '''为每个用户的每个测试数据计算 RMSE'''
                 RMSE_arr[index] += (origin_test_movie_rating - predict_test_movie_rating_arr[index]) ** 2
-
+                '''这里将不同 alpha 的预测评分和真实评分加入列表中'''
+                predict_list[index].append(predict_test_movie_rating_arr[index])
+                origin_list[index].append(origin_test_movie_rating)
+                origin_predict_txt.write(f", {predict_test_movie_rating_arr[index]}")
                 # alpha = 0.3
                 # merge_similarity = alpha * semantic_similarity + (1 - alpha) * cf_similarity
                 # predict_test_movie_rating += merge_similarity * user_rating_dict[user_id][train_movie]
@@ -107,14 +140,35 @@ def calculate_overall_RMSE(cf_similarity_dict, semantic_similarity_dict, user_ra
             # origin_test_movie_rating = user_rating_dict[user_id][test_movie]
             # '''为每个用户的每个测试数据计算 RMSE'''
             # RMSE += (origin_test_movie_rating - predict_test_movie_rating) ** 2
+            origin_predict_txt.write("\n")
             sample_num += 1
     # RMSE = np.sqrt(RMSE / sample_num)
     # print(f'推荐算法评价指标 RMSE 值：{RMSE}')
     print(f"sample_num: {sample_num}")
     for index in range(0, 6):
         RMSE_arr[index] = np.sqrt(RMSE_arr[index] / sample_num)
-    plt.plot(alpha_arr, RMSE_arr)
-    plt.show()
+    return RMSE_arr
+
+
+def get_mse(records_real, records_predict):
+    """
+    均方误差 估计值与真值 偏差
+    """
+    if len(records_real) == len(records_predict):
+        return sum([(x - y) ** 2 for x, y in zip(records_real, records_predict)]) / len(records_real)
+    else:
+        return None
+
+
+def get_rmse(records_real, records_predict):
+    """
+    均方根误差：是均方误差的算术平方根
+    """
+    mse = get_mse(records_real, records_predict)
+    if mse:
+        return math.sqrt(mse)
+    else:
+        return None
 
 
 def query_movie_and_user_rating_dict():
@@ -149,16 +203,24 @@ def query_movie_and_user_rating_dict():
     return cf_movie_set, semantic_movie_set, user_rating_dict
 
 
-def calculate_semantic_similarity_table(movie_title_set):
+def calculate_semantic_similarity_table(movie_title_set, trans_type=1):
     print("计算语义相似度矩阵...")
     start_time_semantic = time.time()
     semantic_similarity_dict = dict()
     '''这里载入的数据是某个 User 的数据，但算出的 entity 嵌入向量则是基于所有实体的'''
     entity_set, relation_set, triple_list = database.query_entity_relation_set_and_triple_list()
+    transH.relation_tph_hpt_loader(triple_list)
     movie_id_set, movie_dict = database.query_movie_dict()
-    trans = TransH(entity_set, relation_set, triple_list, embedding_dim=50, learning_rate=0.01, margin=1)
-    trans.emb_initialize()
-    trans.train(epochs=10, nbatches=400)
+    trans = None
+    if trans_type == 1:
+        trans = TransE(entity_set, relation_set, triple_list, embedding_dim=50, learning_rate=0.01, margin=1)
+        trans.emb_initialize()
+        trans.train(epochs=10, nbatches=400)
+    elif trans_type == 2:
+        trans = TransH(entity_set, relation_set, triple_list, embedding_dim=50, learning_rate=0.01, margin=1)
+        trans.emb_initialize()
+        trans.train(epochs=200, nbatches=400)
+
     '''将 (movie_id, embedding) 字典转为 (title, embedding) 字典'''
     title_embedding_dict = dict()
     # out_semantic_similarity = open("./dataset/out_semantic_similarity.txt", 'w')
@@ -198,12 +260,15 @@ def calculate_cf_similarity_table(movie_set):
         '''这里由两层 movie 循环优化为单层循环，只算出与和 movie 有相同评分人的电影的相似度，减少了冗余'''
         '''鉴于计算时间仍然很长，优化方向：1. 只使用有用户评分的电影集遍历 2. 尝试不采用图数据库计算'''
         '''这种方式仍然会将每个电影的相似度都计算两遍，可以通过构造评分矩阵的方式来优化'''
+        '''欧式距离计算电影协同过滤相似度：SQRT(SUM((r1.grading - r2.grading)^2)) AS sim'''
+        '''1 / (1 + np.sqrt(np.sum((movie1_vec - movie2_vec) ** 2)))'''
+        '''余弦距离计算电影协同过滤相似度：SUM(r1.grading * r2.grading) / (SQRT(SUM(r1.grading^2)) * SQRT(SUM(r2.grading^2))) AS sim'''
         query_result = session.run(f"""
             MATCH (m1:Movie{{title:\"{movie}\"}})-[r1:RATED]-(u:User)-[r2:RATED]-(m2:Movie)
             WITH
                 m1.title AS title1, m2.title AS title2, 
                 COUNT(u) AS users_common,
-                SUM(r1.grading * r2.grading) / (SQRT(SUM(r1.grading^2)) * SQRT(SUM(r2.grading^2))) AS sim
+                1 / (1 + SQRT(SUM((r1.grading - r2.grading)^2))) AS sim
             WHERE users_common > 0 
             RETURN title1, title2, sim 
         """)

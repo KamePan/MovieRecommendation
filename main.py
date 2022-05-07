@@ -18,7 +18,7 @@ def recommend_merge_top_k(user_id, recommend_num, trans=0):
     if trans == 0:
         trans_top_k = transE.query_semantic_recommendation_top_k_by_user_id(user_id=user_id, recommend_num=recommend_num)
     elif trans == 1:
-        trans_top_k = transH.query_recommendation_top_k_by_user_id(user_id=user_id, recommend_num=recommend_num)
+        trans_top_k = transH.query_merge_recommendation_top_k_by_user_id(user_id=user_id, recommend_num=recommend_num)
     print("协同过滤推荐 TopK: ")
     print(pd.DataFrame(cf_top_k, columns=["title", "grade", "recommend_num", "genres"]).to_string(index=False))
     print("语义推荐 TopK: ")
@@ -57,10 +57,10 @@ def recommend_by_semantic_similarity(user_id, recommend_num):
 
 
 if __name__ == '__main__':
-    # file = open("/Users/pankaiming/PycharmProjects/MovieRecommendSystem/dataset/recommend.txt", 'r')
-    # movies = file.readlines()
-    # for movie in movies:
-    #     movie = movie.strip()
-    #     print(movie)
+    file = open("/Users/pankaiming/PycharmProjects/MovieRecommendSystem/dataset/recommend.txt", 'r')
+    movies = file.readlines()
+    for movie in movies:
+        movie = movie.strip()
+        print(movie)
     # recommend_merge_top_k(user_id=440, recommend_num=10, trans=0)
-    recommend_by_semantic_similarity(user_id=440, recommend_num=10)
+    # recommend_by_merge_similarity(user_id=440, recommend_num=10)

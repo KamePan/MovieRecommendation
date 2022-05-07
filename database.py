@@ -102,6 +102,7 @@ def build_user_similarity(user_id, movies_common, threshold_sim):
 # movie rate user rate movie 这样的关系，然后通过两个 rate 评分计算物品相似度。
 # 基于物品的协同过滤适用于物品少用户多的情况，比如我们这里的电影推荐系统。
 def build_item_similarity(user_id, users_common, threshold_sim):
+    print("计算电影协同过滤相似度矩阵")
     start = time.time()
     current_user_grade_dict = dict()
     query_rated_movie_by_user_id(user_id)
@@ -116,12 +117,14 @@ def build_item_similarity(user_id, users_common, threshold_sim):
     movie_similarity_table = dict()
     # users_common 指的是同时看过两个电影的 user 的数量
     for movie_id in current_user_grade_dict.keys():
+        '''欧式距离计算电影协同过滤相似度：SQRT(SUM((r1.grading - r2.grading)^2)) AS sim'''
+        '''余弦距离计算电影协同过滤相似度：SUM(r1.grading * r2.grading) / (SQRT(SUM(r1.grading^2)) * SQRT(SUM(r2.grading^2))) AS sim'''
         similarities = session.run(f"""
                     MATCH (m1:Movie)-[r1:RATED]-(u:User)-[r2:RATED]-(m2:Movie)
                     WHERE id(m1) = {int(movie_id)}
                     WITH
                         m1, m2, 
-                        COUNT(u) AS users_common,
+                        COUNT(u) AS users_common,             
                         SUM(r1.grading * r2.grading) / (SQRT(SUM(r1.grading^2)) * SQRT(SUM(r2.grading^2))) AS sim
                     WHERE users_common >= {users_common}
                     MERGE (m1)-[s:SIMILARITY]-(m2)
@@ -218,6 +221,7 @@ def query_entity_relation_set_and_triple_list():
         entity_set.add(str(entity.id))
     end_time_load_data = time.time()
     print(f"获取实体、关系、三元组集合: {str(end_time_load_data - start_time_load_data)} s")
+    print(f"实体数: {len(entity_set)}, 关系数: {len(relation_set)}, 三元组数: {len(triple_list)}")
     return entity_set, relation_set, triple_list
 
 
@@ -244,7 +248,7 @@ def query_rating_dict_by_user_id(user_id):
     print(f'获取用户 {user_id} 评分信息...')
     current_user_rating_dict = dict()
     query_result = session.run(f"""
-            MATCH (User{{id:\'{user_id}\'}})-[r:RATED]-(m:Movie) RETURN m, r
+            MATCH (User{{id:{user_id}}})-[r:RATED]-(m:Movie) RETURN m, r
         """)
     for rating_record in query_result:
         movie = rating_record["m"]

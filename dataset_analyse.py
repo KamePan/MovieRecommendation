@@ -43,8 +43,8 @@ def analyse_movie_json():
     intersection_movie_id = set()
     for item in intersection_movie:
         intersection_movie_id.add(csv_movie_title_id_dict[item])
-    print(f"json movie: {len(json_movie_set)}")
-    print(f"csv movie: {len(csv_movie_set)}")
+    print(f"dbmovies.json movie: {len(json_movie_set)}")
+    print(f"movies.csv movie: {len(csv_movie_set)}")
     print(f"intersection movie: {len(intersection_movie)}")
     print(f"intersection rated movie: {len(intersection_movie_id.intersection(rated_movie_id_set))}")
 
